@@ -4,8 +4,14 @@
 
 #define ON 1
 #define OFF 0
-#define OK 1
-#define NG 0
+#define OK 0
+#define NG -1
+
+#define PORT_NO12 12
+#define PORT_NO13 13
+
+#define REEDSW_ON_STATE 0xFFFFFFFF
+#define REEDSW_INI_STATE 0x00000000
 
 #ifndef ROOTER_SSID && ROOTER_PASS
   #define ROOTER_SSID "xxxxxxxxx"
@@ -30,8 +36,8 @@ unsigned int ServerPort = SEND_UDP_PORT;
  
 WiFiUDP SendUDPToServer;
 
-//int button=14;          // 変数buttonに14を代入する
-//int led=13;             // 変数ledに13を代入する
+int ReedSW_Port;  /* リードSW用ポート */
+int Led_Port;    /* LED用ポート */
 
 void setup() {
   /* Serial設定初期化 */
@@ -40,12 +46,14 @@ void setup() {
   Wifi_init();
   /* UDP設定初期化 */
   UDP_init();
+  /* Port設定初期化 */
+  Port_init();
 
- // pinMode(led, OUTPUT);         // ledピン(13ピン)を出力にする
 }
 
 void loop() {
 
+#if 0
   boolean Serialdebug_ret = OFF;
   int udpsendresult = NG;
   
@@ -61,10 +69,45 @@ void loop() {
     Serial.print("\n");
 
   }
-  //digitalWrite(led, HIGH);
-  //delay(2000);
-  //digitalWrite(led, LOW);
-  //delay(2000);
+  delay(2000);
+  (void)ReedSW_Read(PORT_NO12);
+  delay(2000);
+#else
+  boolean ReedSW_State = OFF;
+  ReedSW_State = ReedSW_StateSetting();
+  if(ReedSW_State == ON) {
+    print_info_log("スイッチON");   
+  }
+  
+#endif
+}
+
+/*!
+ * @fn          Port_init
+ * @brief       ポート設定イニシャル用処理
+ * @param[in]   non
+ * @param[out]  non
+ * @return      non
+ * @author kumo
+ * @date 2020/09/21
+ * @version
+ * @note なし
+ * @attention なし
+ * @todo 随時追加
+ * @par history
+ * 
+ */
+void Port_init(void)
+{
+  /* 用途ごとのポート設定 */
+  ReedSW_Port = PORT_NO12;  /* リードSW用ポート */
+  Led_Port = PORT_NO13;    /* LED用ポート */
+
+  /* 各ポートのIN/OUT設定 */
+  pinMode(ReedSW_Port, INPUT);  /*リードSW IN*/
+  pinMode(Led_Port, OUTPUT);   /*LED用 OUT*/
+
+  return ;
 }
 
 /*!
@@ -82,7 +125,7 @@ void loop() {
  * @par history
  * 
  */
-void Wifi_init(void )
+void Wifi_init(void)
 {
   /* Connect to WiFi network */
   Serial.println();
@@ -116,7 +159,7 @@ void Wifi_init(void )
  * @par history
  * 
  */
-void UDP_init(void )
+void UDP_init(void)
 {
   /* UDP送信用サーバー初期化設定 */
   SendUDPToServer.begin(ServerPort);
@@ -179,4 +222,120 @@ int SendUDPToServerOrder(const char* IPaddr, uint16_t port, const char* SendData
   SendResult_ret = SendUDPToServer.endPacket();
 
   return SendResult_ret;
+}
+
+/*!
+ * @fn          LED_CONTRL
+ * @brief       LED設定
+ * @param[in]   Ctrl_LED、Setting
+ * @param[out]  non
+ * @return      non
+ * @author kumo
+ * @date 2020/09/21
+ * @version
+ * @note なし
+ * @attention なし
+ * @todo 随時追加
+ * @par history
+ * 
+ */
+void LED_CONTRL(int Ctrl_LED,int Setting)
+{
+  digitalWrite(Ctrl_LED, Setting);
+  return ;
+}
+
+/*!
+ * @fn          ReedSW_Read
+ * @brief       ReedSW読み込み
+ * @param[in]   ReadPort
+ * @param[out]  non
+ * @return      読み込み結果 1:ON/0:OFF
+ * @author kumo
+ * @date 2020/09/21
+ * @version
+ * @note なし
+ * @attention なし
+ * @todo 随時追加
+ * @par history
+ * 
+ */
+int ReedSW_Read(int ReadPort)
+{
+  int readValret = 0;
+  readValret = digitalRead(ReadPort);
+  return readValret;
+}
+
+/*!
+ * @fn          ReedSW_StateSetting
+ * @brief       ReedSWのステータスを設定して戻り値で設定値を返す
+ * @param[in]   non
+ * @param[out]  non
+ * @return      状態 1:ONし続けた/0:OFF
+ * @author kumo
+ * @date 2020/09/23
+ * @version
+ * @note なし
+ * @attention 一応チャタリング対策のため連続で読み出しを行ってからReedSWの設定をする
+ * @todo 随時追加
+ * @par history
+ * 
+ */
+boolean ReedSW_StateSetting(void)
+{
+  int Reed_ret = OFF;
+  unsigned int Reed_ON_Continuity = REEDSW_INI_STATE;
+  boolean Reed_State_Ret = OFF;
+
+  /* リードスイッチが押されたかチェック */
+  Reed_ret = ReedSW_Read(ReedSW_Port);
+  if(Reed_ret == ON) {
+    /* リードスイッチが押された */
+    Reed_ON_Continuity = Reed_ret;
+    /*****************************************/
+    /* リードスイッチがONし続けたかチェック     */
+    /* whileから抜けて戻り値OFFの場合は        */
+    /* 途中でOFFしたかチャタリングが発生している*/
+    /*****************************************/
+    do {
+      Reed_ret = ReedSW_Read(ReedSW_Port);
+      Reed_ON_Continuity = Reed_ON_Continuity << 1;
+      Reed_ON_Continuity += Reed_ret;
+      Serial.println(Reed_ON_Continuity, BIN);
+    } while((Reed_ret == ON) && (Reed_ON_Continuity != REEDSW_ON_STATE));
+
+    /* リードスイッチの状態設定 */
+    switch (Reed_ON_Continuity)
+    {
+    case REEDSW_ON_STATE:
+      /* リードスイッチONし続けた */
+      Reed_State_Ret = ON;
+      break;
+    default:
+      /* リードスイッチが途中でOFFしたかチャタリングが発生した */
+      /* 無処理 */
+      break;
+    }
+  }
+  else {
+    /* リードスイッチは押されていない */
+    /* 無処理 */
+  }
+  return Reed_State_Ret;
+}
+
+void print_info_log(String str)
+{
+  Serial.println("[INFO] " + str);
+}
+
+void print_debug_log(String str)
+{
+  Serial.println("[DEBUG] " + str);
+}
+
+void print_error_log(String str)
+{
+  Serial.println("[ERROR] " + str); 
 }
